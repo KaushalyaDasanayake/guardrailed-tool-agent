@@ -71,6 +71,6 @@ class AgentResponse(BaseModel):
     final_answer: str = Field(..., description="Direct final response to user query")
     steps: list[AgentStep] = Field(default_factory=list, description="Trace of all steps taken")
     completed: bool = Field(default=True, description="Whether the task was completed successfully")
-    iterations: int = Field(default=1, ge=1, description="Total reasoning loops executed")
+    iterations: int = Field(default=0, ge=0, description="Total reasoning loops executed")
     total_latency_ms: float = Field(default=0.0, ge=0.0)
     blocked_actions: int = Field(default=0, ge=0, description="Count of blocked Tier 3 attempts")

@@ -1,0 +1,7 @@
+# Acme Corp Onboarding Guide
+
+Welcome to Acme Corp!
+Key guidelines:
+1. Core working hours are 10:00 AM to 3:00 PM local time.
+2. Development tools must be configured through the internal portal.
+3. Access credentials and production database keys must never be committed to source code.

@@ -1,0 +1,20 @@
+agent:
+  name: guardagent
+  max_iterations: 6
+  timeout_seconds: 30
+  model: llama-3.3-70b-versatile
+  provider: groq  # groq | openai | mock
+  temperature: 0.1
+
+security:
+  sandbox_dir: data/sandbox
+  allow_raw_sql_writes: false
+  max_file_size_bytes: 1048576  # 1MB
+  enforce_human_approval: true
+
+audit:
+  log_file: audit_logs/audit_trail.jsonl
+  enable_hash_chain: true
+
+database:
+  db_path: data/company.db

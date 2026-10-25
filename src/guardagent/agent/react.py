@@ -11,6 +11,7 @@ from typing import Any
 from guardagent.agent.llm import BaseLLMClient
 from guardagent.agent.prompts import build_system_prompt
 from guardagent.guardrails.gate import GuardrailGate
+from guardagent.guardrails.interceptor import HumanInTheLoopInterceptor
 from guardagent.guardrails.policy import PolicyDecision
 from guardagent.schemas.action import (
     AgentResponse,
@@ -80,12 +81,14 @@ class ReActAgent:
         llm_client: BaseLLMClient,
         tool_registry: ToolRegistry,
         guardrail_gate: GuardrailGate | None = None,
+        interceptor: HumanInTheLoopInterceptor | None = None,
         max_iterations: int = 6,
         timeout_seconds: float = 30.0,
     ) -> None:
         self.llm_client = llm_client
         self.tool_registry = tool_registry
         self.guardrail_gate = guardrail_gate or GuardrailGate()
+        self.interceptor = interceptor or HumanInTheLoopInterceptor(auto_approve_tier_2=True)
         self.max_iterations = max_iterations
         self.timeout_seconds = timeout_seconds
 
@@ -222,13 +225,37 @@ class ReActAgent:
                 messages.append({"role": "user", "content": f"Observation: ERROR: {obs_err}"})
                 continue
 
-            # Tier 2 (Mutation / Sensitive) -> Requires Approval (Milestone 3 will add interactive hooks)
+            # Tier 2 (Mutation / Sensitive) -> Human-in-the-Loop Approval Check
             approval_status = ApprovalStatus.AUTO_APPROVED
             approval_reason = policy_eval.reason
 
             if policy_eval.decision == PolicyDecision.REQUIRE_APPROVAL:
-                # In Milestone 2 without HITL interceptor active, default status is PENDING/APPROVED
-                approval_status = ApprovalStatus.PENDING
+                decision = self.interceptor.request_approval(
+                    step_number=iteration,
+                    tool_call=tool_call,
+                    risk_summary=policy_eval.reason,
+                )
+
+                if not decision.approved:
+                    # Human rejected the proposed action -> report denial back to agent for replanning
+                    step_latency = (time.perf_counter() - step_start) * 1000.0
+                    step = AgentStep(
+                        step_number=iteration,
+                        thought=thought,
+                        tool_call=tool_call,
+                        approval_status=ApprovalStatus.DENIED,
+                        approval_reason=f"Human operator denied action: {decision.comment or 'Permission denied'}",
+                        latency_ms=step_latency,
+                    )
+                    steps.append(step)
+
+                    denial_msg = f"ACTION DENIED BY HUMAN OPERATOR: {decision.comment or 'Permission denied'}. You must replan or abort without executing this action."
+                    messages.append({"role": "assistant", "content": response_text})
+                    messages.append({"role": "user", "content": f"Observation: {denial_msg}"})
+                    continue
+
+                approval_status = ApprovalStatus.APPROVED
+                approval_reason = decision.comment or "Approved by human operator"
 
             try:
                 res = tool_obj.execute(**(args or {}))

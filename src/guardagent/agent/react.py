@@ -10,10 +10,12 @@ from typing import Any
 
 from guardagent.agent.llm import BaseLLMClient
 from guardagent.agent.prompts import build_system_prompt
+from guardagent.audit.logger import HashChainedAuditLogger
 from guardagent.guardrails.gate import GuardrailGate
 from guardagent.guardrails.interceptor import HumanInTheLoopInterceptor
 from guardagent.guardrails.policy import PolicyDecision
 from guardagent.schemas.action import (
+    ActionTier,
     AgentResponse,
     AgentStep,
     ApprovalStatus,
@@ -82,6 +84,7 @@ class ReActAgent:
         tool_registry: ToolRegistry,
         guardrail_gate: GuardrailGate | None = None,
         interceptor: HumanInTheLoopInterceptor | None = None,
+        audit_logger: HashChainedAuditLogger | None = None,
         max_iterations: int = 6,
         timeout_seconds: float = 30.0,
     ) -> None:
@@ -89,6 +92,7 @@ class ReActAgent:
         self.tool_registry = tool_registry
         self.guardrail_gate = guardrail_gate or GuardrailGate()
         self.interceptor = interceptor or HumanInTheLoopInterceptor(auto_approve_tier_2=True)
+        self.audit_logger = audit_logger or HashChainedAuditLogger()
         self.max_iterations = max_iterations
         self.timeout_seconds = timeout_seconds
 
@@ -169,6 +173,18 @@ class ReActAgent:
                         latency_ms=step_latency,
                     )
                 )
+                self.audit_logger.log_event(
+                    step_number=iteration,
+                    event_type="action_blocked",
+                    tool_name=tool_name,
+                    arguments=args or {},
+                    tier=ActionTier.TIER_3_FORBIDDEN,
+                    approval_status=ApprovalStatus.BLOCKED,
+                    approval_comment=err_msg,
+                    execution_success=False,
+                    output_summary=err_msg,
+                    latency_ms=step_latency,
+                )
                 messages.append({"role": "assistant", "content": response_text})
                 messages.append({"role": "user", "content": f"Observation: ERROR: {err_msg}"})
                 continue
@@ -189,6 +205,18 @@ class ReActAgent:
                         approval_reason=cycle_msg,
                         latency_ms=step_latency,
                     )
+                )
+                self.audit_logger.log_event(
+                    step_number=iteration,
+                    event_type="action_blocked",
+                    tool_name=tool_name,
+                    arguments=args or {},
+                    tier=ActionTier.TIER_3_FORBIDDEN,
+                    approval_status=ApprovalStatus.BLOCKED,
+                    approval_comment=cycle_msg,
+                    execution_success=False,
+                    output_summary=cycle_msg,
+                    latency_ms=step_latency,
                 )
                 messages.append({"role": "assistant", "content": response_text})
                 messages.append({"role": "user", "content": f"Observation: ERROR: {cycle_msg}"})
@@ -220,6 +248,21 @@ class ReActAgent:
                     latency_ms=step_latency,
                 )
                 steps.append(step)
+
+                # Record audit event for blocked action
+                self.audit_logger.log_event(
+                    step_number=iteration,
+                    event_type="action_blocked",
+                    tool_name=tool_name,
+                    arguments=args or {},
+                    tier=policy_eval.tier,
+                    approval_status=ApprovalStatus.BLOCKED,
+                    approval_comment=policy_eval.reason,
+                    execution_success=False,
+                    output_summary=f"Violations: {policy_eval.violations}",
+                    latency_ms=step_latency,
+                )
+
                 obs_err = f"SECURITY POLICY BLOCKED: {policy_eval.reason} (Violations: {policy_eval.violations})"
                 messages.append({"role": "assistant", "content": response_text})
                 messages.append({"role": "user", "content": f"Observation: ERROR: {obs_err}"})
@@ -228,6 +271,7 @@ class ReActAgent:
             # Tier 2 (Mutation / Sensitive) -> Human-in-the-Loop Approval Check
             approval_status = ApprovalStatus.AUTO_APPROVED
             approval_reason = policy_eval.reason
+            reviewer_name: str | None = None
 
             if policy_eval.decision == PolicyDecision.REQUIRE_APPROVAL:
                 decision = self.interceptor.request_approval(
@@ -235,6 +279,7 @@ class ReActAgent:
                     tool_call=tool_call,
                     risk_summary=policy_eval.reason,
                 )
+                reviewer_name = decision.reviewer
 
                 if not decision.approved:
                     # Human rejected the proposed action -> report denial back to agent for replanning
@@ -248,6 +293,21 @@ class ReActAgent:
                         latency_ms=step_latency,
                     )
                     steps.append(step)
+
+                    # Record audit event for operator denial
+                    self.audit_logger.log_event(
+                        step_number=iteration,
+                        event_type="action_denied",
+                        tool_name=tool_name,
+                        arguments=args or {},
+                        tier=policy_eval.tier,
+                        approval_status=ApprovalStatus.DENIED,
+                        reviewer=decision.reviewer,
+                        approval_comment=decision.comment,
+                        execution_success=False,
+                        output_summary="Action denied by human operator",
+                        latency_ms=step_latency,
+                    )
 
                     denial_msg = f"ACTION DENIED BY HUMAN OPERATOR: {decision.comment or 'Permission denied'}. You must replan or abort without executing this action."
                     messages.append({"role": "assistant", "content": response_text})
@@ -273,6 +333,21 @@ class ReActAgent:
                 latency_ms=step_latency,
             )
             steps.append(step)
+
+            # Record audit event for executed action
+            self.audit_logger.log_event(
+                step_number=iteration,
+                event_type="action_executed",
+                tool_name=tool_name,
+                arguments=args or {},
+                tier=policy_eval.tier,
+                approval_status=approval_status,
+                reviewer=reviewer_name,
+                approval_comment=approval_reason,
+                execution_success=res.success,
+                output_summary=res.output if res.success else res.error,
+                latency_ms=step_latency,
+            )
 
             observation_text = res.output if res.success else f"ERROR: {res.error}"
             messages.append({"role": "assistant", "content": response_text})

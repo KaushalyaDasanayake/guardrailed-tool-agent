@@ -80,7 +80,17 @@ class HumanInTheLoopInterceptor:
             return decision
 
         try:
-            decision = self.callback(req)
+            raw_decision = self.callback(req)
+            if not isinstance(raw_decision, ApprovalDecision):
+                logger.error("Callback returned invalid decision type: %s; failing safe to DENIAL", type(raw_decision))
+                decision = ApprovalDecision(
+                    request_id=req.request_id,
+                    approved=False,
+                    reviewer="system_safety_fallback",
+                    comment="Invalid decision type from approval callback",
+                )
+            else:
+                decision = raw_decision
         except Exception as err:
             logger.error("Approval callback failed with error: %s; defaulting to DENIAL for safety", err)
             decision = ApprovalDecision(
@@ -89,7 +99,8 @@ class HumanInTheLoopInterceptor:
                 reviewer="system_safety_fallback",
                 comment=f"Callback failed: {err}",
             )
+        finally:
+            self.pending_requests.pop(req.request_id, None)
 
         self.decision_history.append(decision)
-        self.pending_requests.pop(req.request_id, None)
         return decision

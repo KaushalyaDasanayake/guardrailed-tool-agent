@@ -167,7 +167,7 @@ class DeterministicAgentClient(BaseLLMClient):
             )
 
         # File Writes (Tier 2)
-        if "write" in lower_q or "save" in lower_q or "export" in lower_q:
+        if "write" in lower_q or "save" in lower_q or "export" in lower_q or "record" in lower_q:
             return (
                 "Thought: I will write the requested content into the sandbox directory.\n"
                 "Action: write_file\n"

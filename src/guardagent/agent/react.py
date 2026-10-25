@@ -15,6 +15,7 @@ from guardagent.guardrails.gate import GuardrailGate
 from guardagent.guardrails.interceptor import HumanInTheLoopInterceptor
 from guardagent.guardrails.policy import PolicyDecision
 from guardagent.schemas.action import (
+    ActionTier,
     AgentResponse,
     AgentStep,
     ApprovalStatus,
@@ -172,6 +173,18 @@ class ReActAgent:
                         latency_ms=step_latency,
                     )
                 )
+                self.audit_logger.log_event(
+                    step_number=iteration,
+                    event_type="action_blocked",
+                    tool_name=tool_name,
+                    arguments=args or {},
+                    tier=ActionTier.TIER_3_FORBIDDEN,
+                    approval_status=ApprovalStatus.BLOCKED,
+                    approval_comment=err_msg,
+                    execution_success=False,
+                    output_summary=err_msg,
+                    latency_ms=step_latency,
+                )
                 messages.append({"role": "assistant", "content": response_text})
                 messages.append({"role": "user", "content": f"Observation: ERROR: {err_msg}"})
                 continue
@@ -192,6 +205,18 @@ class ReActAgent:
                         approval_reason=cycle_msg,
                         latency_ms=step_latency,
                     )
+                )
+                self.audit_logger.log_event(
+                    step_number=iteration,
+                    event_type="action_blocked",
+                    tool_name=tool_name,
+                    arguments=args or {},
+                    tier=ActionTier.TIER_3_FORBIDDEN,
+                    approval_status=ApprovalStatus.BLOCKED,
+                    approval_comment=cycle_msg,
+                    execution_success=False,
+                    output_summary=cycle_msg,
+                    latency_ms=step_latency,
                 )
                 messages.append({"role": "assistant", "content": response_text})
                 messages.append({"role": "user", "content": f"Observation: ERROR: {cycle_msg}"})

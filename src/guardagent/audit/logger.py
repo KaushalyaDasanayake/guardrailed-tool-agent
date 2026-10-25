@@ -63,6 +63,7 @@ class HashChainedAuditLogger:
             event_id = f"evt_{uuid.uuid4().hex[:12]}"
             timestamp = datetime.now(timezone.utc).isoformat()
             args = arguments or {}
+            clean_summary = output_summary[:200] if output_summary else None
 
             current_hash = compute_event_hash(
                 event_id=event_id,
@@ -74,6 +75,10 @@ class HashChainedAuditLogger:
                 tier=tier.value,
                 approval_status=approval_status.value,
                 previous_hash=self._last_hash,
+                reviewer=reviewer,
+                approval_comment=approval_comment,
+                execution_success=execution_success,
+                output_summary=clean_summary,
             )
 
             event = AuditEvent(
@@ -89,7 +94,7 @@ class HashChainedAuditLogger:
                 reviewer=reviewer,
                 approval_comment=approval_comment,
                 execution_success=execution_success,
-                output_summary=output_summary[:200] if output_summary else None,
+                output_summary=clean_summary,
                 latency_ms=latency_ms,
                 previous_hash=self._last_hash,
                 current_hash=current_hash,
@@ -115,7 +120,9 @@ class HashChainedAuditLogger:
             except Exception as err:
                 logger.error("Skipping corrupted audit record: %s", err)
 
-        if limit is not None and limit > 0:
+        if limit is not None:
+            if limit <= 0:
+                return []
             return events[-limit:]
         return events
 
@@ -150,6 +157,10 @@ class HashChainedAuditLogger:
                 tier=event.tier.value,
                 approval_status=event.approval_status.value,
                 previous_hash=event.previous_hash,
+                reviewer=event.reviewer,
+                approval_comment=event.approval_comment,
+                execution_success=event.execution_success,
+                output_summary=event.output_summary,
             )
 
             if event.current_hash != recomputed:

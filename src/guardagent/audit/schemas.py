@@ -23,8 +23,12 @@ def compute_event_hash(
     tier: str,
     approval_status: str,
     previous_hash: str,
+    reviewer: str | None = None,
+    approval_comment: str | None = None,
+    execution_success: bool | None = None,
+    output_summary: str | None = None,
 ) -> str:
-    """Compute deterministic SHA-256 digest of audit event payload chained with previous_hash."""
+    """Compute deterministic SHA-256 digest of complete audit event payload chained with previous_hash."""
     canonical_payload = json.dumps(
         {
             "event_id": event_id,
@@ -35,9 +39,14 @@ def compute_event_hash(
             "arguments": arguments,
             "tier": tier,
             "approval_status": approval_status,
+            "reviewer": reviewer or "",
+            "approval_comment": approval_comment or "",
+            "execution_success": execution_success,
+            "output_summary": output_summary or "",
             "previous_hash": previous_hash,
         },
         sort_keys=True,
+        default=str,
     )
     return hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()
 

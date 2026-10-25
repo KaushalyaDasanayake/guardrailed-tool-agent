@@ -12,13 +12,13 @@ DESTRUCTIVE_SQL_PATTERN = re.compile(
 
 # Mutating SQL operations that add or update records
 MUTATING_SQL_PATTERN = re.compile(
-    r"\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|CREATE\s+TABLE|REPLACE\s+INTO)\b",
+    r"\b(INSERT\s+INTO|UPDATE\s+[\w\.\"`']+\s+SET|CREATE\s+TABLE|REPLACE\s+INTO)\b",
     re.IGNORECASE,
 )
 
 # Path traversal patterns targeting parent directories or absolute root
 PATH_TRAVERSAL_PATTERN = re.compile(
-    r"(\.\./|\.\.\\|/\.\.|\\\.\.|^/|^\\|/etc/|/root/|/proc/|/sys/|/var/run/|c:\\|windows\\)",
+    r"(^\.\.$|\.\./|\.\.\\|/\.\.|\\\.\.|^/|^\\|/etc/|/root/|/proc/|/sys/|/var/run/|c:[\\/]|windows[\\/])",
     re.IGNORECASE,
 )
 

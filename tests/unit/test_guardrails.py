@@ -32,6 +32,13 @@ def test_inspect_sql_query_mutations():
     query_type2, _ = inspect_sql_query("UPDATE employees SET salary = 120000 WHERE id = 2")
     assert query_type2 == "mutation"
 
+    # Quoted or schema-qualified identifier
+    query_type3, _ = inspect_sql_query('UPDATE "employees" SET salary = 120000 WHERE id = 2')
+    assert query_type3 == "mutation"
+
+    query_type4, _ = inspect_sql_query("UPDATE public.employees SET salary = 120000 WHERE id = 2")
+    assert query_type4 == "mutation"
+
 
 def test_inspect_sql_query_destructive():
     # DROP
@@ -58,6 +65,7 @@ def test_inspect_file_path_safety():
     assert inspect_file_path("reports/q4_summary.md")[0] is True
 
     # Traversal patterns
+    assert inspect_file_path("..")[0] is False
     assert inspect_file_path("../../etc/passwd")[0] is False
     assert inspect_file_path("/etc/shadow")[0] is False
     assert inspect_file_path("..\\windows\\system32")[0] is False

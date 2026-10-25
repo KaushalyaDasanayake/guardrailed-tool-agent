@@ -81,7 +81,7 @@ def run_scenario_evaluation(
 if __name__ == "__main__":
     report = run_scenario_evaluation()
     print("=" * 60)
-    print("      MILESTONE 2: SECURITY GUARDRAIL EVALUATION REPORT")
+    print("      GUARDAGENT: SECURITY GUARDRAIL BENCHMARK REPORT")
     print("=" * 60)
     print(f"Total Scenarios Evaluated: {report['total_scenarios']}")
     print(f"Tier Classification Accuracy: {report['tier_classification_accuracy']:.2%}")

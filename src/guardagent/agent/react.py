@@ -10,6 +10,8 @@ from typing import Any
 
 from guardagent.agent.llm import BaseLLMClient
 from guardagent.agent.prompts import build_system_prompt
+from guardagent.guardrails.gate import GuardrailGate
+from guardagent.guardrails.policy import PolicyDecision
 from guardagent.schemas.action import (
     AgentResponse,
     AgentStep,
@@ -77,11 +79,13 @@ class ReActAgent:
         self,
         llm_client: BaseLLMClient,
         tool_registry: ToolRegistry,
+        guardrail_gate: GuardrailGate | None = None,
         max_iterations: int = 6,
         timeout_seconds: float = 30.0,
     ) -> None:
         self.llm_client = llm_client
         self.tool_registry = tool_registry
+        self.guardrail_gate = guardrail_gate or GuardrailGate()
         self.max_iterations = max_iterations
         self.timeout_seconds = timeout_seconds
 
@@ -190,8 +194,42 @@ class ReActAgent:
             visited_actions.add(fingerprint)
             tool_obj = self.tool_registry.get(tool_name)
 
-            # In Milestone 1, execute tool directly; Milestone 2 will insert the GuardrailGate
-            tool_call = ToolCall(tool_name=tool_name, arguments=args or {}, tier=tool_obj.tier)
+            # Evaluate action proposal through GuardrailGate
+            tool_call = ToolCall(
+                tool_name=tool_name,
+                arguments=args or {},
+                tier=tool_obj.tier,
+                justification=thought,
+            )
+            policy_eval = self.guardrail_gate.evaluate_proposal(tool_call, user_query=clean_query)
+            tool_call.tier = policy_eval.tier
+
+            # Tier 3 (Forbidden) -> Strictly Blocked
+            if policy_eval.decision == PolicyDecision.BLOCK:
+                blocked_count += 1
+                step_latency = (time.perf_counter() - step_start) * 1000.0
+                step = AgentStep(
+                    step_number=iteration,
+                    thought=thought,
+                    tool_call=tool_call,
+                    approval_status=ApprovalStatus.BLOCKED,
+                    approval_reason=policy_eval.reason,
+                    latency_ms=step_latency,
+                )
+                steps.append(step)
+                obs_err = f"SECURITY POLICY BLOCKED: {policy_eval.reason} (Violations: {policy_eval.violations})"
+                messages.append({"role": "assistant", "content": response_text})
+                messages.append({"role": "user", "content": f"Observation: ERROR: {obs_err}"})
+                continue
+
+            # Tier 2 (Mutation / Sensitive) -> Requires Approval (Milestone 3 will add interactive hooks)
+            approval_status = ApprovalStatus.AUTO_APPROVED
+            approval_reason = policy_eval.reason
+
+            if policy_eval.decision == PolicyDecision.REQUIRE_APPROVAL:
+                # In Milestone 2 without HITL interceptor active, default status is PENDING/APPROVED
+                approval_status = ApprovalStatus.PENDING
+
             try:
                 res = tool_obj.execute(**(args or {}))
             except Exception as err:
@@ -202,7 +240,8 @@ class ReActAgent:
                 step_number=iteration,
                 thought=thought,
                 tool_call=tool_call,
-                approval_status=ApprovalStatus.AUTO_APPROVED,
+                approval_status=approval_status,
+                approval_reason=approval_reason,
                 tool_result=res,
                 latency_ms=step_latency,
             )
